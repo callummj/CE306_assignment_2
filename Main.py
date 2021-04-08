@@ -1,11 +1,14 @@
 from elasticsearch import Elasticsearch
 import Assignment1Index as assignment1
 import Assignment2Index as assignment2
-import json
-
+import nltk
+from nltk.stem.snowball import SnowballStemmer
+from nltk.stem.porter import PorterStemmer
 
 # Default port for localhosted elasticsearch : 9200
 es = Elasticsearch([{'host': 'localhost', 'port': 9200}])
+
+MAX_RESULTS = 10
 
 # Create a Movie object so it's neater to store in the test collection dictionary
 class Movie:
@@ -16,47 +19,43 @@ class Movie:
         self.releaseYear = movie['_source']['Release Year']
         self.director = movie['_source']['Director']
         self.cast = movie['_source']['Cast']
-        self.plot = movie['_source']['Plot']
+        self.plot = nltk.sent_tokenize(movie['_source']['Plot'])
         self.id = movie['_id']
+        self.score = movie['_score']
+
 
     def toString(self):
         print("----------------------------------------------------------------------------")
-        print("Title: ", self.title, "\nRelease Year: ", self.releaseYear, "\nGenre: ", str.capitalize(self.genre), "\nID: ", self.id, "\nOrigin: ", self.origin)
+        print("Title: ", self.title, "\nRelease Year: ", self.releaseYear, "\nGenre: ", str.capitalize(self.genre), "\nID: ", self.id, "\nOrigin: ", self.origin, "\nScore :", self.score)
         print(
             "----------------------------------------------------------------------------")
 
+
+    def stemPlot(self):
+        snowballStemmer = SnowballStemmer(language='english')
+        stemmedPlot = []
+        for sentence in self.plot:
+            print("sent:" , sentence)
+            stemmedSentece = []
+
+            sentence = snowballStemmer.stem(sentence)
+            '''
+            for word in sentence:
+                print("word:" , word)
+                word =  snowballStemmer.stem(word)
+                stemmedSentece.append(word) 
+            '''
+            stemmedPlot.append(sentence)
+
+        self.plot = stemmedPlot
 
 def getResults(terms, filter):
 
     # Search the Database for western movies, this is what
     # will make up my testCollection
 
-    '''
-    matchQuery = {
-        "query":
-            {
-                "match": {
-                    field: {
-                        "query": query,
-                        "fuzziness": 1
-                    }
-                }
-            }
-    }
-    '''
 
 
-    queryM = {
-        "query":{
-            "range": {
-                  "Release Year": {
-                    "gte": 1900,
-                    "lte": 1909,
-                    "boost": 1.0
-                  }
-            },
-        }
-    }
 
 
 
@@ -68,30 +67,6 @@ def getResults(terms, filter):
         fieldQuery[field] = {"query": field + ":", "fuzziness": 1}
 
 
-
-    indexOneSettings = {
-        "analyzer": {
-            "movie_analyser": {
-                "type": "custom",
-                "tokenizer": "lowercase",
-                # Tokenizer: also makes text lowercase for normal form
-                "filter": filter,
-                # Filter settings as defined above
-            }
-        },
-        "filter": {
-            "movie_snowball_filter": {
-                # Stemmer, uses Porter stemmer and language is defined above in settings section
-                "type": "porter_stem",
-                "language": "English", # This can be changed -> See top of Assignment1Index for more details
-            },
-            "stopfilter": {
-                # Stopwords filter, removes stopwords from text, settings are defined above
-                "type": "stop",
-                "stopwords": "_english_"
-            }
-        },
-    }
 
 
 
@@ -106,7 +81,7 @@ def getResults(terms, filter):
                 "bool": {
                     "must": [
                         {
-                            "match":
+                            "match_phrase":
                             {
                             field: searchTerm,
 
@@ -141,7 +116,11 @@ def getResults(terms, filter):
                             #"fuzziness": "AUTO" # Source: https://www.elastic.co/guide/en/elasticsearch/reference/current/query-dsl-match-query.html#query-dsl-match-query-fuzziness
                         }
                     }
-                }
+                },
+            "sort": [
+                "_score"
+                    
+            ]
         }
 
 
@@ -155,10 +134,15 @@ def getResults(terms, filter):
     # collection
     results = []
 
+    i = 1
     for movie in result['hits']['hits']:
         #thisMovie = Movie(movie['_source']['Title'], movie['_source']['Genre'], movie['_source']['_id'] )
+        if i > MAX_RESULTS:
+            break
+        else:
+            results.append(Movie(movie)) # create object
 
-        results.append(Movie(movie)) # create object
+        i+=1
 
        # print(movie)
         #testCollection[movie['_source']['Title']] = thisMovie
@@ -186,14 +170,14 @@ def createTestCollection():
     query = 0
 
     #                       Field       Query           Date range
-    result = getResults([ ["Plot", " world war 1"] ], False)
+    result = getResults([ ["Plot", "World war 1 soldiers in the trenches"] ], False)
     if len(result)==0:
         result = []
 
     testCollection[query] = result
     query+=1
 
-    result = getResults([["Plot", "The wild west"]], [1910, 1920])
+    result = getResults([["Plot", "New York"]], False)
     if len(result) == 0:
         result = []
 
@@ -201,7 +185,7 @@ def createTestCollection():
     query+=1
 
 
-    result = getResults([["Plot", "robbery"]], False)
+    result = getResults([["Plot", "racing"]], False)
     if len(result) == 0:
         result = []
 
@@ -211,10 +195,7 @@ def createTestCollection():
 
     return testCollection
 
-
 '''
-
-
 
 1. create a test collection
     Dictionary testCollecton = {
@@ -233,6 +214,7 @@ if __name__ == '__main__':
 
     testCollection = {}
 
+    relevantDocs = []
 
     # Create the indexes, peform the test queries on each
     assignment1.createIndex() # This function deletes the previous index as well
@@ -248,18 +230,129 @@ if __name__ == '__main__':
 
     # Peforming Test set on index 1
 
+    uniqueDocs = []
+
 
     print("Top result for each query in each index")
-    print("Query 1")
-    try:
-        testCollection['Index1'][0][0].toString()
+
+    for queryNumber in range (0, 3):
+        print("Query: ", queryNumber)
+        for index in range(1, 3):
+            index = "Index" + str(index)
+
+            try:
+                testCollection[index][queryNumber][0].toString()
+                fname = "query"+str(queryNumber) + str(index) + ".txt"
+                f = open(fname, "w")
+
+                res = []
+
+                for i in testCollection[index][queryNumber]:
+                    #f.write("Title: " + i.title + " | " + " ID: " + i.id + "\n")
+                    f.write(i.title + "\n")
+
+                f.close()
+                print("size: ", len(testCollection['Index1'][queryNumber]))
+            except IndexError:
+                print("Query ", queryNumber," is empty")
+
+
+
+    print("----Number of unique documents----")
+
+    for queryNumber in range (0, 3):
+        print("Query: ", queryNumber)
+        res = []
+        for index in range(1, 3):
+            index = "Index" + str(index)
+            for i in testCollection[index][queryNumber]:
+                res.append(i.id)
+        print("Unique documents in: ", queryNumber, ": ", len(set(res)))
+
+
+    print(testCollection['Index1'][1])
+    print(testCollection['Index2'][1])
+
+    '''
+    
+
+try:
+        testCollection[index][queryNumber][0].toString()
+        print("size: ", len(testCollection['Index2'][queryNumber]))
     except IndexError:
         print("Query 1 is empty")
 
+    snowballStemmer = SnowballStemmer(
+        language='english')
+    porterStemmer = PorterStemmer(
+       )
+
+
+
+
+    query = 'World War 1'
+    query = snowballStemmer.stem(query)
+
+    print("INDEX 1")
+    for i in range(0, len(testCollection[index][0])):
+        print(testCollection[index][queryNumber][i].plot)
+        uniqueDocs.append(
+            testCollection[index][queryNumber][i].title)
+
+        plot = str(testCollection[index][queryNumber][i].plot)
+
+        plot = snowballStemmer.stem(plot)
+
+        if query in plot:
+            relevantDocs.append(testCollection[index][queryNumber][i])
+
+
+    #print("ID: ", testCollection['Index1'][queryNumber][i].id)
+
+    index = 'Index2'
+
+    query = 'World War 1'
+    query = porterStemmer.stem(query)
+
+    print("INDEX 2")
+    for i in range (0, len(testCollection[index][0])):
+        print(testCollection[index][queryNumber][i].id)
+        uniqueDocs.append(testCollection[index][queryNumber][i].title)
+        plot = str(testCollection[index][queryNumber][i].plot)
+
+        plot = porterStemmer.stem(plot)
+
+        if query in plot:
+            relevantDocs.append(
+                testCollection[index][queryNumber][i])
+
+
+
+    uniqueDocs = set(uniqueDocs)
+    print(uniqueDocs)
+    print(len(uniqueDocs))
+
+    #relevantDocs = set(relevantDocs)
+    print("Relevant docs:\n", relevantDocs)
+
+
+    '''
+
+
+
+
+
+
+
+
+
+    '''
     try:
         testCollection['Index2'][0][0].toString()
+        print("size: ", len(testCollection['Index2'][0]))
     except IndexError:
         print("Query 1 is empty")
+
 
 
 
@@ -267,24 +360,31 @@ if __name__ == '__main__':
 
     try:
         testCollection['Index1'][1][0].toString()
+        print("size: ", len(testCollection['Index1'][1]))
     except IndexError:
         print("Query 2 is empty")
 
     try:
         testCollection['Index2'][1][0].toString()
+        print("size: ", len(testCollection['Index2'][1]))
     except IndexError:
         print("Query 2 is empty")
+
 
 
 
     print("Query 3")
     try:
         testCollection['Index1'][2][0].toString()
+        print("size: ", len(testCollection['Index1'][2]))
     except IndexError:
         print("Query 3 is empty")
 
     try:
         testCollection['Index2'][2][0].toString()
+        print("size: ", len(testCollection['Index2'][2]))
     except IndexError:
         print("Query 3 is empty")
 
+    print("\n\n")
+    '''

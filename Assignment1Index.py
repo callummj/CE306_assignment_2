@@ -150,6 +150,7 @@ def createIndex():
 
 
 
+
 #Extracts the first 1000 movies and uploads them directly to Elasticsearch.
 def extractAndUpload():
     with open("wiki_movie_plots_deduped.csv", encoding='utf-8') as moviesCSV:
@@ -157,7 +158,7 @@ def extractAndUpload():
         movies = []
         id = 0
         for row in csvReader:
-            movies.append(row)  # will have same position as its index into the elasticsearch DB
+
             upload(row, id)
             id += 1
             if id > 999:
@@ -165,9 +166,19 @@ def extractAndUpload():
 
 
 
+
 # Release Year,Title,Origin/Ethnicity,Director,Cast,Genre,Wiki Page,Plot
 #Uploads to Elasticsearch
 def upload(document, id):
+    plot = document['Plot']
+
+    # source: https://careerkarma.com/blog/python-remove-punctuation/
+
+    punctionation = ( "?", ".", ";", ":", "!", "(", ")", "{", "}", "@", "#", "+", "-", "[", "]", "\"")
+    alnumPlot = "".join(char for char in plot if
+                             char not in (
+                            punctionation))
+
     es.index(index='movies', doc_type='movie', ignore=400, id=id, body={
         'Release Year': document['Release Year'],
         'Title': document['Title'],
@@ -176,9 +187,8 @@ def upload(document, id):
         'Cast': [document['Cast']],
         'Genre': document['Genre'],
         'Wiki Page': document['Wiki Page'],
-        'Plot': document['Plot'],
+        'Plot': alnumPlot,
     })
-
 
 
 

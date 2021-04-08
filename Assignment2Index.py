@@ -19,9 +19,6 @@ Please set your settings for the system here
 stemmerLanguage = "English" # Default to english, but you can change to these languages:
 useStemmer = True # True -> Use stemmer on analysis, False -> Do not use stemmer
 
-includeStopwords = False # False -> Remove stopwords, True -> Keep them
-stopWordsLanguage = "_english_" # Please include underscores ( '_' ), either side of the language string (Available languages defined below
-
 
 maxResults = 50 # Maximum results which can be shown in the command line
 '''
@@ -56,8 +53,7 @@ def createIndex():
     filter = []
     if useStemmer:
         filter.append("movie_snowball_filter")
-    if (includeStopwords == False):
-        filter.append("stopfilter")
+
 
 
     map = {
@@ -78,10 +74,6 @@ def createIndex():
                     "movie_snowball_filter": { # Stemmer, uses Porter stemmer and language is defined above in settings section
                         "type": "porter_stem",
                         "language": stemmerLanguage,
-                    },
-                    "stopfilter": { # Stopwords filter, removes stopwords from text, settings are defined above
-                        "type": "stop",
-                        "stopwords": stopWordsLanguage
                     }
                 },
             },
@@ -158,6 +150,7 @@ def extractAndUpload():
         id = 0
         for row in csvReader:
             movies.append(row)  # will have same position as its index into the elasticsearch DB
+
             upload(row, id)
             id += 1
             if id > 999:
@@ -168,6 +161,15 @@ def extractAndUpload():
 # Release Year,Title,Origin/Ethnicity,Director,Cast,Genre,Wiki Page,Plot
 #Uploads to Elasticsearch
 def upload(document, id):
+    plot = document['Plot']
+
+    # source: https://careerkarma.com/blog/python-remove-punctuation/
+
+    punctionation = ( "?", ".", ";", ":", "!", "(", ")", "{", "}", "@", "#", "+", "-", "[", "]", "\"")
+    alnumPlot = "".join(char for char in plot if
+                             char not in (
+                            punctionation))
+
     es.index(index='movies', doc_type='movie', ignore=400, id=id, body={
         'Release Year': document['Release Year'],
         'Title': document['Title'],
@@ -176,8 +178,12 @@ def upload(document, id):
         'Cast': [document['Cast']],
         'Genre': document['Genre'],
         'Wiki Page': document['Wiki Page'],
-        'Plot': document['Plot'],
+        'Plot': alnumPlot,
     })
+
+
+
+
 
 
 
